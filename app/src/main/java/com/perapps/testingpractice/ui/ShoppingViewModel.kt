@@ -1,0 +1,113 @@
+package com.perapps.testingpractice.ui
+
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.perapps.testingpractice.data.local.ShoppingItem
+import com.perapps.testingpractice.data.remote.responses.ImageResponse
+import com.perapps.testingpractice.other.Constants
+import com.perapps.testingpractice.other.Event
+import com.perapps.testingpractice.other.Resource
+import com.perapps.testingpractice.repositories.ShoppingRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+@HiltViewModel
+class ShoppingViewModel @Inject constructor(
+    private val repository: ShoppingRepository
+) : ViewModel() {
+
+    val shoppingItems = repository.observeAllShoppingItems()
+
+    val totalPrice = repository.observeTotalPrice()
+
+    private val _images = MutableLiveData<Event<Resource<ImageResponse>>>()
+    val images: LiveData<Event<Resource<ImageResponse>>> = _images
+
+    private val _curImageUrl = MutableLiveData<String>()
+    val curImageUrl: LiveData<String> = _curImageUrl
+
+    private val _insertShoppingItemStatus = MutableLiveData<Event<Resource<ShoppingItem>>>()
+    val insertShoppingItemStatus: LiveData<Event<Resource<ShoppingItem>>> =
+        _insertShoppingItemStatus
+
+    fun setCurImageUrl(url: String) {
+        _curImageUrl.postValue(url)
+    }
+
+    fun deleteShoppingItem(shoppingItem: ShoppingItem) = viewModelScope.launch {
+        repository.deleteShoppingItem(shoppingItem)
+    }
+
+    fun insertShoppingItemToDb(shoppingItem: ShoppingItem) = viewModelScope.launch {
+        repository.insertShoppingItem(shoppingItem)
+    }
+
+    fun insertShoppingItem(name: String, amountString: String, priceString: String) {
+        if (name.isBlank() || amountString.isBlank() || priceString.isBlank()) {
+            _insertShoppingItemStatus.postValue(
+                Event(
+                    Resource.error(
+                        "Fields cannot be empty",
+                        null
+                    )
+                )
+            )
+            return
+        }
+        if (name.length > Constants.MAX_NAME_LENGTH) {
+            _insertShoppingItemStatus.postValue(
+                Event(
+                    Resource.error(
+                        "Name too large ",
+                        null
+                    )
+                )
+            )
+            return
+        }
+        if (priceString.length > Constants.MAX_PRICE_LENGTH) {
+            _insertShoppingItemStatus.postValue(
+                Event(
+                    Resource.error(
+                        "Price too large ",
+                        null
+                    )
+                )
+            )
+            return
+        }
+        val amount = try {
+            amountString.toInt()
+        } catch (e: Exception) {
+            _insertShoppingItemStatus.postValue(
+                Event(
+                    Resource.error(
+                        "Please enter valid amount",
+                        null
+                    )
+                )
+            )
+            return
+        }
+        val shoppingItem =
+            ShoppingItem(name, amount, priceString.toFloat(), _curImageUrl.value ?: "")
+        insertShoppingItemToDb(shoppingItem)
+        setCurImageUrl("")
+        _insertShoppingItemStatus.postValue(Event(Resource.success(shoppingItem)))
+    }
+
+    fun searchForImages(imageQuery: String) {
+        if (imageQuery.isBlank())
+            return
+        else {
+            _images.value = Event(Resource.loading(null))
+        }
+        viewModelScope.launch {
+            val response = repository.searchForImage(imageQuery)
+            _images.value = Event(response)
+        }
+    }
+}
